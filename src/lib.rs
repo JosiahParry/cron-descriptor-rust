@@ -175,6 +175,7 @@ pub mod cronparser {
     pub mod cron_expression_descriptor {
         use lazy_static::lazy_static;
         use std::collections::HashMap;
+        use std::error::Error;
         use string_builder::Builder;
 
         use crate::cronparser::{CasingTypeEnum, DescriptionTypeEnum, Options};
@@ -194,6 +195,14 @@ pub mod cronparser {
             pub s: String,
             pub error_offset: u8,
         }
+
+        impl std::fmt::Display for ParseException {
+            fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                write!(f, "{:?}", self)
+            }
+        }
+
+        impl Error for ParseException {}
 
         mod expression_parser {
             /* Cron reference
@@ -342,67 +351,70 @@ pub mod cronparser {
             expression: &str,
             options: &Options,
             locale: &str,
-        ) -> Result<String, ParseException> {
+        ) -> Result<String, Box<dyn Error>> {
             rust_i18n::set_locale(&locale);
             let expression_parsed = expression_parser::parse(expression, options);
             match expression_parsed {
                 Ok(expression_parts) => {
                     let description_res = match description_type {
                         DescriptionTypeEnum::FULL => {
-                            get_full_description(&expression_parts, options)
+                            get_full_description(&expression_parts, options)?
                         }
                         DescriptionTypeEnum::TIMEOFDAY => {
-                            get_time_of_day_description(&expression_parts, options)
+                            get_time_of_day_description(&expression_parts, options)?
                         }
                         DescriptionTypeEnum::SECONDS => {
-                            get_seconds_description(&expression_parts, options)
+                            get_seconds_description(&expression_parts, options)?
                         }
                         DescriptionTypeEnum::MINUTES => {
-                            get_minutes_description(&expression_parts, options)
+                            get_minutes_description(&expression_parts, options)?
                         }
                         DescriptionTypeEnum::HOURS => {
-                            get_hours_description(&expression_parts, options)
+                            get_hours_description(&expression_parts, options)?
                         }
                         DescriptionTypeEnum::DAYOFWEEK => {
-                            get_day_of_week_description(&expression_parts, options)
+                            get_day_of_week_description(&expression_parts, options)?
                         }
                         DescriptionTypeEnum::MONTH => {
-                            get_month_description(&expression_parts, options)
+                            get_month_description(&expression_parts, options)?
                         }
                         DescriptionTypeEnum::DAYOFMONTH => {
-                            get_day_of_month_description(&expression_parts, options)
+                            get_day_of_month_description(&expression_parts, options)?
                         }
                         DescriptionTypeEnum::YEAR => {
-                            get_year_description(&expression_parts, options)
+                            get_year_description(&expression_parts, options)?
                         }
                     };
                     Ok(description_res)
                 }
-                Err(pe) => Err(pe),
+                Err(pe) => Err(pe.into()),
             }
         }
 
         // From the C# code, not Java.
-        fn get_full_description(expression_parts: &Vec<String>, options: &Options) -> String {
+        fn get_full_description(
+            expression_parts: &Vec<String>,
+            options: &Options,
+        ) -> Result<String, Box<dyn Error>> {
             let time_segment = get_time_of_day_description(&expression_parts, options);
             let day_of_month_desc = get_day_of_month_description(&expression_parts, options);
-            let month_desc = get_month_description(&expression_parts, options);
-            let day_of_week_desc = get_day_of_week_description(&expression_parts, options);
-            let year_desc = get_year_description(&expression_parts, options);
+            let month_desc = get_month_description(&expression_parts, options)?;
+            let day_of_week_desc = get_day_of_week_description(&expression_parts, options)?;
+            let year_desc = get_year_description(&expression_parts, options)?;
             let week_or_month_desc = if "*" == &expression_parts[3] {
                 day_of_week_desc
             } else {
-                day_of_month_desc
+                day_of_month_desc?
             };
             let desc1 = format!(
                 "{0}{1}{2}{3}",
-                time_segment, week_or_month_desc, month_desc, year_desc
+                time_segment?, week_or_month_desc, month_desc, year_desc
             );
             // eprintln!("time: \"{}\"; day_of_month: \"{}\"; month: \"{}\"; year: \"{}\"",
             //           time_segment, week_or_month_desc, month_desc, year_desc);
             // println!("before verbosity: {}", desc1);
             let desc2 = transform_verbosity(desc1, options);
-            transform_case(&desc2, options)
+            Ok(transform_case(&desc2, options))
         }
 
         fn transform_verbosity(description: String, options: &Options) -> String {
@@ -437,7 +449,10 @@ pub mod cronparser {
             }
         }
 
-        fn get_year_description(expression_parts: &Vec<String>, options: &Options) -> String {
+        fn get_year_description(
+            expression_parts: &Vec<String>,
+            options: &Options,
+        ) -> Result<String, Box<dyn Error>> {
             let builder = YearDescriptionBuilder { options };
             builder.get_segment_description(
                 &expression_parts[6],
@@ -448,7 +463,7 @@ pub mod cronparser {
         fn get_day_of_week_description(
             expression_parts: &Vec<String>,
             options: &Options,
-        ) -> String {
+        ) -> Result<String, Box<dyn Error>> {
             let builder = DayOfWeekDescriptionBuilder { options };
             // println!("in get_day_of_week_description, expr: {}", &expression_parts[5]);
             builder.get_segment_description(
@@ -457,22 +472,34 @@ pub mod cronparser {
             )
         }
 
-        fn get_minutes_description(expression_parts: &Vec<String>, options: &Options) -> String {
+        fn get_minutes_description(
+            expression_parts: &Vec<String>,
+            options: &Options,
+        ) -> Result<String, Box<dyn Error>> {
             let builder = MinutesDescriptionBuilder { options };
             builder.get_segment_description(&expression_parts[1], t!("messages.every_minute"))
         }
 
-        fn get_seconds_description(expression_parts: &Vec<String>, options: &Options) -> String {
+        fn get_seconds_description(
+            expression_parts: &Vec<String>,
+            options: &Options,
+        ) -> Result<String, Box<dyn Error>> {
             let builder = SecondsDescriptionBuilder { options };
             builder.get_segment_description(&expression_parts[0], t!("messages.every_second"))
         }
 
-        fn get_hours_description(expression_parts: &Vec<String>, options: &Options) -> String {
+        fn get_hours_description(
+            expression_parts: &Vec<String>,
+            options: &Options,
+        ) -> Result<String, Box<dyn Error>> {
             let builder = HoursDescriptionBuilder { options };
             builder.get_segment_description(&expression_parts[2], t!("messages.every_hour"))
         }
 
-        fn get_month_description(expression_parts: &Vec<String>, options: &Options) -> String {
+        fn get_month_description(
+            expression_parts: &Vec<String>,
+            options: &Options,
+        ) -> Result<String, Box<dyn Error>> {
             let builder = MonthDescriptionBuilder { options };
             builder.get_segment_description(&expression_parts[4], "".to_string())
         }
@@ -480,7 +507,7 @@ pub mod cronparser {
         fn get_day_of_month_description(
             expression_parts: &Vec<String>,
             options: &Options,
-        ) -> String {
+        ) -> Result<String, Box<dyn Error>> {
             use regex::Regex;
             use strfmt::strfmt;
             let exp = expression_parts[3].replace("?", "*");
@@ -508,16 +535,17 @@ pub mod cronparser {
                 } else {
                     let builder = DayOfMonthDescriptionBuilder { options };
                     // eprintln!("in get_day_of_month_description, exp: {}", exp);
-                    builder.get_segment_description(&exp, format!(", {}", t!("messages.every_day")))
+                    builder
+                        .get_segment_description(&exp, format!(", {}", t!("messages.every_day")))?
                 }
             };
-            description
+            Ok(description)
         }
 
         fn get_time_of_day_description(
             expression_parts: &Vec<String>,
             options: &Options,
-        ) -> String {
+        ) -> Result<String, Box<dyn Error>> {
             let seconds_expression = &expression_parts[0];
             let minutes_expression = &expression_parts[1];
             let hours_expression = &expression_parts[2];
@@ -579,9 +607,9 @@ pub mod cronparser {
                     }
                 }
             } else {
-                let seconds_description = get_seconds_description(expression_parts, options);
-                let minutes_description = get_minutes_description(expression_parts, options);
-                let hours_description = get_hours_description(expression_parts, options);
+                let seconds_description = get_seconds_description(expression_parts, options)?;
+                let minutes_description = get_minutes_description(expression_parts, options)?;
+                let hours_description = get_hours_description(expression_parts, options)?;
                 // println!("file: {}, line: {}", file!(), line!());
                 // println!("seconds_description: {} minutes_description: {}, hours_description: {}",
                 //   seconds_description, minutes_description, hours_description);
@@ -595,10 +623,10 @@ pub mod cronparser {
                 }
                 description.append(hours_description);
             }
-            description.string().unwrap()
+            Ok(description.string()?)
         }
 
-        pub fn get_description_cron(expression: &str) -> Result<String, ParseException> {
+        pub fn get_description_cron(expression: &str) -> Result<String, Box<dyn Error>> {
             // println!("Expression: {}", expression);
             get_description(
                 DescriptionTypeEnum::FULL,
@@ -611,7 +639,7 @@ pub mod cronparser {
         pub fn get_description_cron_options(
             expression: &str,
             options: &cronparser::Options,
-        ) -> Result<String, ParseException> {
+        ) -> Result<String, Box<dyn Error>> {
             get_description(
                 DescriptionTypeEnum::FULL,
                 expression,
@@ -623,7 +651,7 @@ pub mod cronparser {
         pub fn get_description_cron_locale(
             expression: &str,
             locale: &str,
-        ) -> Result<String, ParseException> {
+        ) -> Result<String, Box<dyn Error>> {
             get_description(
                 DescriptionTypeEnum::FULL,
                 expression,
@@ -636,14 +664,14 @@ pub mod cronparser {
             expression: &str,
             options: &Options,
             locale: &str,
-        ) -> Result<String, ParseException> {
+        ) -> Result<String, Box<dyn Error>> {
             get_description(DescriptionTypeEnum::FULL, expression, options, locale)
         }
 
         pub fn get_description_cron_type_expr(
             desc_type: DescriptionTypeEnum,
             expression: &str,
-        ) -> Result<String, ParseException> {
+        ) -> Result<String, Box<dyn Error>> {
             get_description(
                 desc_type,
                 expression,
@@ -656,7 +684,7 @@ pub mod cronparser {
             desc_type: DescriptionTypeEnum,
             expression: &str,
             locale: &str,
-        ) -> Result<String, ParseException> {
+        ) -> Result<String, Box<dyn Error>> {
             get_description(desc_type, expression, &Options::options(), locale)
         }
 
@@ -664,7 +692,7 @@ pub mod cronparser {
             desc_type: DescriptionTypeEnum,
             expression: &str,
             options: &Options,
-        ) -> Result<String, ParseException> {
+        ) -> Result<String, Box<dyn Error>> {
             get_description(desc_type, expression, options, &rust_i18n::locale())
         }
     }
